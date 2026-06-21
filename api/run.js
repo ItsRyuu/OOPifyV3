@@ -1,13 +1,11 @@
 // ============================================================
 // Vercel Serverless Function — Java Compiler Proxy
-// POST /api/run
-// CommonJS format (tidak butuh package.json / build step)
+// POST /api/run  —  CommonJS, zero dependencies
 // ============================================================
 
 const https = require("https");
 
 module.exports = async function handler(req, res) {
-  // CORS headers (opsional tapi aman)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -52,30 +50,47 @@ module.exports = async function handler(req, res) {
       pistonRes.on("end", () => {
         try {
           const data = JSON.parse(raw);
+
+          // ── Cek compile error terlebih dahulu ─────────────────
+          // Jika compile gagal, Piston tidak menjalankan program sama sekali
+          const compile = data.compile || null;
+          if (compile && compile.code != null && compile.code !== 0) {
+            return res.status(200).json({
+              output: "",
+              stderr: compile.stderr || compile.output || "Compile error",
+              error: `Compilation failed`,
+            });
+          }
+
+          // ── Hasil run ─────────────────────────────────────────
           const run = data.run || {};
+          const exitCode = run.code; // bisa 0, 1, null, atau undefined
+
           res.status(200).json({
             output: run.stdout || "",
             stderr: run.stderr || "",
-            error: run.code !== 0 ? `Exit code ${run.code}` : "",
+            // null/undefined = tidak ada info exit code = anggap sukses
+            error: (exitCode != null && exitCode !== 0)
+              ? `Exit code ${exitCode}`
+              : "",
           });
         } catch (e) {
           res.status(502).json({
             output: "",
-            stderr: raw,
-            error: "Gagal parse response dari compiler: " + e.message,
+            stderr: raw.slice(0, 500),
+            error: "Gagal parse response: " + e.message,
           });
         }
         resolve();
       });
     });
 
-    // Timeout 25 detik (Vercel functions limit: 30s default)
     pistonReq.setTimeout(25000, () => {
       pistonReq.destroy();
       res.status(504).json({
         output: "",
         stderr: "",
-        error: "Compiler timeout (>25 detik). Coba sederhanakan kode.",
+        error: "Compiler timeout (>25 detik).",
       });
       resolve();
     });
@@ -84,7 +99,7 @@ module.exports = async function handler(req, res) {
       res.status(500).json({
         output: "",
         stderr: "",
-        error: "Tidak dapat terhubung ke compiler: " + e.message,
+        error: "Network error: " + e.message,
       });
       resolve();
     });

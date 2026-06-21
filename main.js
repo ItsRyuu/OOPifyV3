@@ -894,8 +894,14 @@ if (btnRun) {
       };
     }
 
+    // Java mengharuskan filename = nama public class
+    // Ekstrak nama class pertama dari kode yang di-generate
+    const classNameMatch = executionResult.code.match(/public\s+class\s+(\w+)/);
+    const javaFileName = classNameMatch ? `${classNameMatch[1]}.java` : "Main.java";
+
     const pistonPayload = {
-      files: [{ name: "Main.java", content: executionResult.code }],
+      files: [{ name: javaFileName, content: executionResult.code }],
+
       stdin: finalStdin,
     };
 
