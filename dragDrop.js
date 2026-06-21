@@ -11,54 +11,6 @@ let lastDropHash = "";
 let renderOffsetX = 0;
 let renderOffsetY = 0;
 
-// --- OPTIMIZATION: O(1) Ghost Tracking ---
-let activeGhostParent = null;
-
-// --- GHOST HELPERS ---
-function clearGhost(blocks) {
-  if (activeGhostParent && activeGhostParent.children) {
-    const idx = activeGhostParent.children.findIndex(
-      (b) => b.id === "ghost-block",
-    );
-    if (idx !== -1) {
-      activeGhostParent.children.splice(idx, 1);
-      activeGhostParent = null;
-      return true;
-    }
-  }
-
-  for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].id === "ghost-block") {
-      blocks.splice(i, 1);
-      activeGhostParent = null;
-      return true;
-    }
-    if (blocks[i].children) {
-      if (clearGhost(blocks[i].children)) return true;
-    }
-  }
-  return false;
-}
-
-function markAsGhost(block) {
-  block.isGhost = true;
-  if (block.id !== "ghost-block" && !block.id.startsWith("ghost-")) {
-    block.id = "ghost-" + block.id;
-  }
-  if (block.children) block.children.forEach(markAsGhost);
-}
-
-function cloneBlockTree(block) {
-  const clone = { ...block };
-  if (block.data) {
-    clone.data = { ...block.data };
-  }
-  if (block.children) {
-    clone.children = block.children.map(cloneBlockTree);
-  }
-  return clone;
-}
-
 // --- CENTRALIZED COLLISION ENGINE ---
 function checkHorizontalCollision(subjectBlock, target) {
   const cx = subjectBlock.x + (subjectBlock.width || 120) / 2;
@@ -72,7 +24,7 @@ function checkHorizontalCollision(subjectBlock, target) {
   ) {
     let chainWidth = target.width || 320;
     target.children.forEach((c) => {
-      if (c.type === "parameter" && !c.isGhost) chainWidth += c.width || 220;
+      if (c.type === "parameter") chainWidth += c.width || 220;
     });
     return (
       cy > target.y - 30 &&
@@ -81,7 +33,6 @@ function checkHorizontalCollision(subjectBlock, target) {
       cx < target.x + chainWidth + 150
     );
   }
-
   if (
     subjectBlock.type === "argument" &&
     (target.type === "print" ||
@@ -858,11 +809,14 @@ export function startSpawn(evt, type) {
   dragInfo.startY = evt.clientY;
   dragInfo.isNewSpawn = true;
   render();
+  // [LOG HOOK] Block spawned from palette
+  if (window.onAfterSpawn) window.onAfterSpawn(newBlock);
 }
 
 export function startDrag(evt, blockId, parentId) {
   if (evt.button !== 0) return;
   if (evt.target.tagName === "SELECT" || evt.target.tagName === "INPUT") return;
+  if (evt.target.closest && evt.target.closest(".custom-dropdown-btn")) return;
   evt.stopPropagation();
 
   document.body.classList.add("is-dragging");
@@ -871,6 +825,8 @@ export function startDrag(evt, blockId, parentId) {
   if (parentId && parentId !== "null") {
     const result = findBlockAndParent(ws.blocks, blockId);
     if (result && result.parent) {
+      // [LOG HOOK] Block detached from parent
+      if (window.onAfterDetach) window.onAfterDetach(result.block, result.parent);
       result.parent.children = result.parent.children.filter(
         (b) => b.id !== blockId,
       );
@@ -938,6 +894,7 @@ export function setupDragListeners() {
         return;
       }
 
+      // Update absolute data coordinates
       subjectBlock.x += scaledDx;
       subjectBlock.y += scaledDy;
       dragInfo.startX = evt.clientX;
@@ -954,62 +911,28 @@ export function setupDragListeners() {
       if (isOverTrash) trashZone.classList.add("drag-over");
       else trashZone.classList.remove("drag-over");
 
-      const hadGhost = clearGhost(ws.blocks);
-      let drop = getDropDetails(ws.blocks, subjectBlock);
+      // Visually move the tree using fast SVG transforms instead of heavy DOM renders
+      renderOffsetX += scaledDx;
+      renderOffsetY += scaledDy;
 
-      // Unique hash tracking to detect if the mouse moved to a different slot!
-      let currentDropHash = drop
-        ? `${drop.container.id}-${drop.index}-${drop.slot || "none"}`
-        : "none";
-      let stateHash =
-        currentDropHash + "-" + (isOverTrash ? "trash" : "canvas");
-
-      const insertGhost = () => {
-        if (!isOverTrash && drop) {
-          const ghostBlock = cloneBlockTree(subjectBlock);
-          ghostBlock.id = "ghost-block";
-          markAsGhost(ghostBlock);
-
-          // 🔴 UPGRADED: Inherit the math/logic slot property dynamically so it visually snaps to left or right!
-          if (drop.slot) ghostBlock.slot = drop.slot;
-
-          drop.container.children.splice(drop.index, 0, ghostBlock);
-          activeGhostParent = drop.container;
-        }
-      };
-
-      if (stateHash !== lastDropHash) {
-        insertGhost();
-        ws.blocks.forEach(computeLayout);
-        render();
-        lastDropHash = stateHash;
-        renderOffsetX = 0;
-        renderOffsetY = 0;
-      } else {
-        if (hadGhost) insertGhost();
-        renderOffsetX += scaledDx;
-        renderOffsetY += scaledDy;
-
-        function moveVisualTree(block) {
-          const group = document.querySelector(`g[data-id="${block.id}"]`);
-          if (group)
-            group.setAttribute(
-              "transform",
-              `translate(${renderOffsetX}, ${renderOffsetY})`,
-            );
-          if (block.children) block.children.forEach(moveVisualTree);
-        }
-        moveVisualTree(subjectBlock);
+      function moveVisualTree(block) {
+        const group = document.querySelector(`g[data-id="${block.id}"]`);
+        if (group)
+          group.setAttribute(
+            "transform",
+            `translate(${renderOffsetX}, ${renderOffsetY})`,
+          );
+        if (block.children) block.children.forEach(moveVisualTree);
       }
+      moveVisualTree(subjectBlock);
+
       isDraggingFrame = false;
     });
   });
 
   window.addEventListener("mouseup", (evt) => {
-    lastDropHash = "";
     renderOffsetX = 0;
     renderOffsetY = 0;
-    activeGhostParent = null;
 
     document.body.classList.remove("is-dragging");
 
@@ -1027,8 +950,6 @@ export function setupDragListeners() {
       dragInfo.isDraggingBlock = false;
       return;
     }
-
-    clearGhost(ws.blocks);
 
     const tRect = trashZone.getBoundingClientRect();
     if (
@@ -1052,6 +973,8 @@ export function setupDragListeners() {
       ws.blocks.forEach(computeLayout);
       render();
       saveState();
+      // [LOG HOOK] Block deleted via trash
+      if (window.onAfterDelete) window.onAfterDelete(subjectBlock);
       return;
     }
 
@@ -1059,7 +982,7 @@ export function setupDragListeners() {
     if (drop) {
       ws.blocks = ws.blocks.filter((b) => b.id !== subjectBlock.id);
 
-      // 🔴 UPGRADED: Bind the real block to the left or right side of the parent equation permanently!
+      // Bind the real block to the left or right side of the parent equation permanently!
       if (drop.slot) subjectBlock.slot = drop.slot;
       else delete subjectBlock.slot; // Clean up old data if moved to a generic hole
 
@@ -1228,7 +1151,6 @@ export function setupDragListeners() {
         }
       }
     } else {
-      // 🔴 UPGRADED: If you rip an operator out and drop it on the canvas, scrub its slot data so it becomes independent again!
       delete subjectBlock.slot;
     }
 
@@ -1240,6 +1162,8 @@ export function setupDragListeners() {
     ws.blocks.forEach(computeLayout);
     render();
     saveState();
+    // [LOG HOOK] Block dropped onto canvas or nested into container
+    if (window.onAfterDrop) window.onAfterDrop(subjectBlock, drop);
   });
 
   let zoomTimeout;

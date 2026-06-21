@@ -106,7 +106,6 @@ export function saveState() {
   localStorage.setItem("oopify_autosave", JSON.stringify(workspaces));
   localStorage.setItem("oopify_active_tab", activeWorkspaceId);
 }
-
 export function loadFromAutoSave() {
   const savedData = localStorage.getItem("oopify_autosave");
   const savedActiveId = localStorage.getItem("oopify_active_tab");
@@ -123,7 +122,14 @@ export function loadFromAutoSave() {
         setWorkspaces(parsedWorkspaces);
 
         if (savedActiveId) {
-          setActiveWorkspaceId(parseInt(savedActiveId));
+          const targetId = parseInt(savedActiveId);
+          // NEW: Ensure the saved ID actually exists before loading it
+          const exists = parsedWorkspaces.some((w) => w.id === targetId);
+          if (exists) {
+            setActiveWorkspaceId(targetId);
+          } else {
+            setActiveWorkspaceId(parsedWorkspaces[0].id);
+          }
         } else {
           setActiveWorkspaceId(parsedWorkspaces[0].id);
         }

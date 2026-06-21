@@ -1430,6 +1430,13 @@
           <div id="code-header">
             <span class="code-label">Java</span>
             <div class="code-header-buttons">
+              <!-- Run button: jalankan kode Java via Piston API -->
+              <button id="btn-run" title="Run (Jalankan kode Java)">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </button>
+
               <button id="btn-copy" onclick="copyCode()">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1473,6 +1480,7 @@
         <button id="btn-generate" data-i18n="ui_btn_generate">
           Konversi Blok Menjadi Kode
         </button>
+
       </div>
     </div>
 
@@ -1651,54 +1659,5 @@
 
     <div id="global-modifier-menu" class="modifier-menu hidden"></div>
     <div id="custom-context-menu" class="context-menu hidden"></div>
-
-    <!-- ============================================================ -->
-    <!-- ACTIVITY LOG PANEL — Collapsible bottom panel for log viewing -->
-    <!-- ============================================================ -->
-    <div id="activity-log-panel" class="activity-log-collapsed">
-      <div id="activity-log-header" onclick="toggleLogPanel()">
-        <span>📋 Activity Log</span>
-        <span id="activity-log-badge" class="log-badge">0</span>
-        <div style="flex:1"></div>
-        <button id="btn-log-export" onclick="event.stopPropagation(); window._logDownload && window._logDownload()" title="Export JSON">⬇ Export</button>
-        <button id="btn-log-clear" onclick="event.stopPropagation(); window._logClear && window._logClear(); document.getElementById('activity-log-entries').innerHTML=''; document.getElementById('activity-log-badge').textContent='0'" title="Clear Log">🗑 Clear</button>
-        <span id="activity-log-toggle">▲</span>
-      </div>
-      <div id="activity-log-body">
-        <div id="activity-log-entries"></div>
-      </div>
-    </div>
-
-    <script>
-      function toggleLogPanel() {
-        const panel = document.getElementById('activity-log-panel');
-        panel.classList.toggle('activity-log-collapsed');
-        const toggle = document.getElementById('activity-log-toggle');
-        toggle.textContent = panel.classList.contains('activity-log-collapsed') ? '▲' : '▼';
-      }
-
-      // Wire up badge + auto-append from activityLogger.js
-      window._updateLogBadge = function() {
-        const badge = document.getElementById('activity-log-badge');
-        if (badge && window._logGetCount) badge.textContent = window._logGetCount();
-      };
-
-      window._appendLogEntry = function(entry) {
-        const container = document.getElementById('activity-log-entries');
-        if (!container) return;
-        const div = document.createElement('div');
-        div.className = 'log-entry log-event-' + entry.event.toLowerCase().replace(/_/g, '-');
-        const time = new Date(entry.timestamp).toLocaleTimeString('id-ID');
-        const elapsed = (entry.elapsedMs / 1000).toFixed(1);
-        let detail = '';
-        if (entry.blockType) detail += `<span class="log-tag">${entry.blockType}</span>`;
-        if (entry.field) detail += `<span class="log-field">${entry.field}</span>`;
-        if (entry.newValue !== undefined) detail += `<span class="log-value">→ "${entry.newValue}"</span>`;
-        if (entry.hasError) detail += `<span class="log-error">⚠ error</span>`;
-        div.innerHTML = `<span class="log-time">${time} (+${elapsed}s)</span> <span class="log-event">${entry.event}</span> ${detail}`;
-        container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
-      };
-    </script>
   </body>
 </html>

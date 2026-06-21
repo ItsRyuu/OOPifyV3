@@ -2,11 +2,9 @@ import {
   updateBlockData,
   workspaces,
   getActiveWorkspace,
-  findBlockAndParent,
   saveState,
   loadFromAutoSave,
 } from "./state.js";
-import { logEvent, startSession, getEntries, getEntryCount, exportJSON, downloadLog, clearLog } from "./activityLogger.js";
 import {
   renderTabs,
   switchTab,
@@ -15,12 +13,11 @@ import {
   copyCode,
   setupThemeToggle,
   setupFullscreenToggle,
-  setupPedagogyTooltips,
   setupUndoRedo,
   setupModifierDropdown,
-  setupContextMenu,
   setupAppMenu,
   setupAppMenuActions,
+  setupGlobalActions,
 } from "./ui.js";
 import {
   computeLayout,
@@ -55,10 +52,37 @@ import { startDrag, startSpawn, setupDragListeners } from "./dragDrop.js";
 import { setupTutorialModal } from "./tutorial.js";
 import { generateJavaCode } from "./codegen.js";
 import { t } from "./language.js";
+import { activityLogger } from "./activityLogger.js";
 
 window.updateBlockData = updateBlockData;
 window.startDrag = startDrag;
 window.startSpawn = startSpawn;
+
+// ── Wrap updateBlockData to intercept input/dropdown changes for logging ──────
+// The original updateBlockData is preserved; we only observe what it receives.
+window.updateBlockData = function (id, key, value) {
+  // Get old value before update (for logging)
+  const ws = getActiveWorkspace ? getActiveWorkspace() : null;
+  let oldValue;
+  if (ws) {
+    const { findBlockAndParent } = window._stateHelpers || {};
+    // We don't expose findBlockAndParent, so just skip oldValue tracking
+    oldValue = undefined;
+  }
+
+  // Call original function
+  updateBlockData(id, key, value);
+
+  // Determine event type: access/modifier fields = MODIFIER_CHANGED, else BLOCK_EDITED
+  const modifierFields = ["access", "type", "returnType", "superClass", "interfaces", "classRef", "classObj"];
+  const eventName = modifierFields.includes(key) ? "MODIFIER_CHANGED" : "BLOCK_EDITED";
+
+  activityLogger.logEvent(eventName, {
+    blockId: id,
+    field: key,
+    newValue: value,
+  });
+};
 window.switchCategory = switchCategory;
 window.copyCode = copyCode;
 window.closeTab = closeTab;
@@ -617,109 +641,33 @@ document.getElementById("btn-add-tab").onclick = () => {
   });
   switchTab(newId);
 };
-
-// --- COMPLEX POPOVER INTERACTION STATE ---
-let activeGenerationError = null;
-let activeErrorLineNum = null;
-let popoverMode = "hidden"; // "initial", "hover", "hidden"
-
-window.clearErrorState = function () {
-  const oldHighlight = document.getElementById("error-highlight");
-  if (oldHighlight) oldHighlight.remove();
-
-  document.querySelectorAll(".block-error-shadow").forEach((el) => {
-    el.classList.remove("block-error-shadow");
-  });
-
-  hideErrorPopover();
-  activeGenerationError = null;
-  activeErrorLineNum = null;
-  popoverMode = "hidden";
-};
-
 document.getElementById("btn-generate").onclick = () => {
   window.isCodeGeneratedAndReady = true;
   const ws = getActiveWorkspace();
   const codeOutput = document.getElementById("code-output");
-  const codePre = document.getElementById("code-pre");
 
+  let hasError = false;
   try {
+    // Generate the code, completely ignoring any block errors or orphans
     const result = generateJavaCode(ws.blocks);
     const code = result.code;
 
     ws.code = code;
     codeOutput.textContent = code;
-    codeOutput.style.color = "";
+    codeOutput.style.color = ""; // Reset text color
+
     if (window.Prism) Prism.highlightElement(codeOutput);
-
-    window.clearErrorState();
-
-    if (result.error) {
-      const lines = code.split("\n");
-      let lineIdx = -1;
-
-      const isDuplicate =
-        result.error.title.includes("Duplikasi") ||
-        result.error.title.includes("Duplikat");
-      const isOrphan = result.error.title.includes("Struktur Logika");
-
-      if (isDuplicate || isOrphan) {
-        const matches = [];
-        lines.forEach((l, i) => {
-          if (l.includes(result.error.searchString)) matches.push(i);
-        });
-
-        lineIdx = matches.length > 0 ? matches[matches.length - 1] : 0;
-      } else {
-        lineIdx = lines.findIndex((l) => l.includes(result.error.searchString));
-        if (lineIdx === -1) lineIdx = 0;
-      }
-
-      const lineNum = lineIdx + 1;
-
-      activeGenerationError = result.error;
-      activeErrorLineNum = lineNum;
-
-      const highlight = document.createElement("div");
-      highlight.id = "error-highlight";
-      highlight.style.top = `calc(15px + ${lineIdx * 21}px)`;
-
-      highlight.style.width = `max(calc(100% + 50px), ${codePre.scrollWidth}px)`;
-      codePre.appendChild(highlight);
-
-      codePre.scrollTo({
-        top: lineIdx * 21 - codePre.clientHeight / 2 + 15,
-        behavior: "smooth",
-      });
-
-      popoverMode = "initial";
-      showErrorPopover(result.error, lineNum, codePre);
-
-      if (result.error.blockId) {
-        const errorBlockSvg =
-          document.getElementById(result.error.blockId) ||
-          document.querySelector(`[data-id="${result.error.blockId}"]`);
-
-        if (errorBlockSvg) {
-          errorBlockSvg.classList.add("block-error-shadow");
-        }
-      }
-    }
   } catch (error) {
-    if (error.isCustomError) {
-      showCustomAlert(error.title, error.message, error.detail, error.hint);
-    } else {
-      showCustomAlert(
-        "Terjadi Kesalahan",
-        error.message || "Kesalahan tidak dikenal.",
-        "",
-        "Silakan periksa blok Anda.",
-      );
-    }
+    // This will only trigger if the compiler itself catastrophically crashes,
+    // not for user logic errors.
+    hasError = true;
+    console.error(error);
     codeOutput.textContent =
-      "// ERROR KONVERSI KODE\n// " + (error.message || error);
+      "// FATAL COMPILER ERROR\n// " + (error.message || error);
     codeOutput.style.color = "#ff4d4f";
   }
+  // [LOG] Code generation event
+  activityLogger.logEvent("CODE_GENERATED", { hasError });
 };
 
 // --- HELPER TO COUNT INPUT BLOCKS ---
@@ -748,11 +696,8 @@ const btnRun = document.getElementById("btn-run");
 if (btnRun) {
   btnRun.onclick = async () => {
     if (!window.isCodeGeneratedAndReady) {
-      showCustomAlert(
-        t("alert_run_need_convert_title"),
-        t("alert_run_need_convert_msg"),
-        t("alert_run_need_convert_detail"),
-        "", // hint (left blank)
+      alert(
+        `${t("alert_run_need_convert_title")}\n${t("alert_run_need_convert_msg")}`,
       );
       return;
     }
@@ -925,29 +870,53 @@ if (btnRun) {
     btnRun.innerHTML = spinnerSVG;
     btnRun.disabled = true;
 
-    // 4. SCall the external compiler API
+    // 4. Call the external compiler API (Piston — free, no key required)
+    // ── MIGRASI KE VERCEL: ganti URL_COMPILER menjadi "/api/run" ──────────────
+    // Buat /api/run.js di Vercel yang return format { output, stderr, error }
+    // ─────────────────────────────────────────────────────────────────────────
+    const URL_COMPILER = "https://emkc.org/api/v2/piston/execute";
 
     // GENERATE FRESH EXECUTION CODE HERE
     const executionResult = generateJavaCode(ws.blocks, true);
 
-    const payload = {
-      code: executionResult.code,
-      compiler: "openjdk-25",
+    // Adapter: normalisasi response Piston ke format { output, stderr, error }
+    // sehingga kode output handling di bawah tidak perlu diubah
+    function normalizePistonResponse(pistonData) {
+      const run = pistonData.run || {};
+      return {
+        output: run.stdout || "",
+        stderr: run.stderr || "",
+        error: run.code !== 0 ? `Exit code ${run.code}` : "",
+      };
+    }
+
+    const pistonPayload = {
+      language: "java",
+      version: "*",
+      files: [{ name: "Main.java", content: executionResult.code }],
       stdin: finalStdin,
-      input: finalStdin,
     };
 
     try {
-      const response = await fetch("/api/run", {
+      const response = await fetch(URL_COMPILER, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(pistonPayload),
       });
 
-      const data = await response.json();
+      const raw = await response.json();
+      const data = normalizePistonResponse(raw);
 
       btnRun.innerHTML = originalIcon;
       btnRun.disabled = false;
+
+      // Log CODE_RUN event
+      if (window.activityLogger) {
+        window.activityLogger.logEvent("CODE_RUN", {
+          exitCode: raw.run?.code,
+          hasStderr: !!(raw.run?.stderr?.trim()),
+        });
+      }
 
       // REMOVE "Running..." text smoothly
       if (runningDiv.parentNode) {
@@ -1104,12 +1073,10 @@ setupAppMenuActions();
 setupFullscreenToggle();
 setupDragListeners();
 initPalette();
-setupPedagogyTooltips();
 setupUndoRedo();
 setupTutorialModal();
-setupBeforeUnloadAlert();
 setupModifierDropdown();
-setupContextMenu();
+setupGlobalActions();
 loadFromAutoSave();
 renderTabs();
 render();
@@ -1123,183 +1090,79 @@ document
 
 saveState(); // Capture the very first blank canvas state
 
-// ============================================================
-// ACTIVITY LOGGER — Hook into existing events via interceptors
-// NO existing logic is modified. Only wrapping/observing.
-// ============================================================
+// ── Initialize Activity Logger & Register Drag Callbacks ──────────────────────
+activityLogger.init();
 
-// Start a logging session
-startSession();
-
-// --- 1. BLOCK SPAWN: Intercept window.startSpawn ---
-const _originalStartSpawn = window.startSpawn;
-window.startSpawn = function (evt, type) {
-  _originalStartSpawn(evt, type);
-  logEvent("BLOCK_SPAWNED", { blockType: type });
+// ── Wrap window.applyModifier for dropdown/modifier logging ───────────────────
+// applyModifier is set by setupModifierDropdown() in ui.js.
+// It bypasses updateBlockData, so we must wrap it here separately.
+const _origApplyModifier = window.applyModifier;
+window.applyModifier = function (blockId, key, val, closeAfter) {
+  // Call original first
+  _origApplyModifier(blockId, key, val, closeAfter);
+  // Then log
+  activityLogger.logEvent("MODIFIER_CHANGED", {
+    blockId,
+    field: key,
+    newValue: val,
+  });
 };
 
-// --- 2. BLOCK EDITED (textbox) + MODIFIER CHANGED (dropdown): Intercept handlePillInput ---
-const _originalHandlePillInput = window.handlePillInput;
-let _editDebounceTimer = null;
-let _lastEditKey = "";
-window.handlePillInput = function (element, blockId, prop) {
-  _originalHandlePillInput(element, blockId, prop);
-  // Debounce: only log once per field per 500ms to avoid per-keystroke spam
-  const editKey = `${blockId}-${prop}`;
-  if (_lastEditKey !== editKey) {
-    _lastEditKey = editKey;
-    clearTimeout(_editDebounceTimer);
-    _editDebounceTimer = setTimeout(() => {
-      const ws = getActiveWorkspace();
-      const result = ws ? findBlockAndParent(ws.blocks, blockId) : null;
-      const blockType = result && result.block ? result.block.type : "unknown";
-      const isModifier = ["access", "type", "returnType", "static", "final", "abstract"].includes(prop);
-      logEvent(isModifier ? "MODIFIER_CHANGED" : "BLOCK_EDITED", {
-        blockType: blockType,
-        blockId: blockId,
-        field: prop,
-        newValue: element.value,
-      });
-      _lastEditKey = "";
-    }, 500);
+// Callbacks from dragDrop.js hooks (set here, after setupDragListeners runs)
+window.onAfterSpawn = (block) => {
+  activityLogger.logEvent("BLOCK_SPAWNED", {
+    blockId: block.id,
+    blockType: block.type,
+  });
+};
+
+window.onAfterDetach = (block, fromParent) => {
+  activityLogger.logEvent("BLOCK_DETACHED", {
+    blockId: block.id,
+    blockType: block.type,
+    fromContainer: fromParent ? fromParent.type : null,
+    fromContainerName: fromParent?.data?.name,
+  });
+};
+
+window.onAfterDelete = (block) => {
+  activityLogger.logEvent("BLOCK_DELETED", {
+    blockId: block.id,
+    blockType: block.type,
+    blockName: block.data?.name,
+  });
+};
+
+window.onAfterDrop = (block, drop) => {
+  if (drop) {
+    // Dropped into a container (nested)
+    activityLogger.logEvent("BLOCK_DROPPED", {
+      blockId: block.id,
+      blockType: block.type,
+      targetContainer: drop.container.type,
+      targetContainerName: drop.container.data?.name,
+      dropIndex: drop.index,
+    });
   } else {
-    clearTimeout(_editDebounceTimer);
-    _editDebounceTimer = setTimeout(() => {
-      const ws = getActiveWorkspace();
-      const result = ws ? findBlockAndParent(ws.blocks, blockId) : null;
-      const blockType = result && result.block ? result.block.type : "unknown";
-      const isModifier = ["access", "type", "returnType", "static", "final", "abstract"].includes(prop);
-      logEvent(isModifier ? "MODIFIER_CHANGED" : "BLOCK_EDITED", {
-        blockType: blockType,
-        blockId: blockId,
-        field: prop,
-        newValue: element.value,
-      });
-      _lastEditKey = "";
-    }, 500);
-  }
-};
-
-// --- 3. BLOCK DROP / DELETE / DETACH: Intercept mouseup on workspace ---
-// We listen to the same mouseup event AFTER the existing handler runs.
-// Track spawned blocks to detect drop vs delete.
-let _lastSpawnedType = null;
-const _origStartSpawn2 = window.startSpawn;
-window.startSpawn = function (evt, type) {
-  _lastSpawnedType = type;
-  _origStartSpawn2(evt, type);
-};
-
-const _origStartDrag = window.startDrag;
-window.startDrag = function (evt, blockId, parentId) {
-  // Log detach if block was inside a parent
-  if (parentId && parentId !== "null") {
-    const ws = getActiveWorkspace();
-    const result = ws ? findBlockAndParent(ws.blocks, blockId) : null;
-    const blockType = result && result.block ? result.block.type : "unknown";
-    logEvent("BLOCK_DETACHED", {
-      blockType: blockType,
-      blockId: blockId,
-      fromContainer: parentId,
+    // Dropped freely on canvas (already moved, no nesting)
+    activityLogger.logEvent("BLOCK_DROPPED", {
+      blockId: block.id,
+      blockType: block.type,
+      targetContainer: null,
     });
   }
-  _origStartDrag(evt, blockId, parentId);
 };
 
-// --- 4. BLOCK DELETE (trash zone): Observe via MutationObserver on block count ---
-let _prevBlockCount = getActiveWorkspace()?.blocks?.length || 0;
-const _origSaveState = saveState;
-// We hook into saveState which is called after every drop/delete
-// Check block count delta to detect deletions
-window.addEventListener("mouseup", () => {
-  setTimeout(() => {
-    const ws = getActiveWorkspace();
-    if (!ws) return;
-    const currentCount = ws.blocks.length;
-    if (currentCount < _prevBlockCount) {
-      logEvent("BLOCK_DELETED", {
-        blocksRemoved: _prevBlockCount - currentCount,
-        totalBlocksRemaining: currentCount,
-      });
-    } else if (_lastSpawnedType && currentCount <= _prevBlockCount) {
-      // Block was spawned but ended up in a container (count didn't increase at root)
-      logEvent("BLOCK_DROPPED", {
-        blockType: _lastSpawnedType,
-        totalBlocksOnWorkspace: currentCount,
-      });
-    }
-    _prevBlockCount = currentCount;
-    _lastSpawnedType = null;
-  }, 50);
+// Hook undo/redo via button & keyboard (undo/redo not exposed to window)
+document.getElementById("btn-undo")?.addEventListener("click", () => {
+  activityLogger.logEvent("UNDO", {});
+}, { capture: false });
+document.getElementById("btn-redo")?.addEventListener("click", () => {
+  activityLogger.logEvent("REDO", {});
+}, { capture: false });
+// Also hook Ctrl+Z / Ctrl+Y keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.ctrlKey && e.key === "z") activityLogger.logEvent("UNDO", {});
+  if (e.ctrlKey && (e.key === "y" || e.key === "Z")) activityLogger.logEvent("REDO", {});
 });
-
-// --- 5. UNDO / REDO: Intercept via button click + keyboard ---
-const _btnUndo = document.getElementById("btn-undo");
-const _btnRedo = document.getElementById("btn-redo");
-if (_btnUndo) {
-  _btnUndo.addEventListener("click", () => logEvent("UNDO"), true);
-}
-if (_btnRedo) {
-  _btnRedo.addEventListener("click", () => logEvent("REDO"), true);
-}
-// Also catch keyboard undo/redo
-window.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
-    logEvent("UNDO");
-  }
-  if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
-    logEvent("REDO");
-  }
-}, true);
-
-// --- 6. CODE GENERATED: Intercept btn-generate ---
-const _btnGenerate = document.getElementById("btn-generate");
-if (_btnGenerate) {
-  _btnGenerate.addEventListener("click", () => {
-    // Defer to let the original handler run first
-    setTimeout(() => {
-      const ws = getActiveWorkspace();
-      const hasError = !!document.getElementById("error-highlight");
-      logEvent("CODE_GENERATED", {
-        hasError: hasError,
-        codeLength: (ws?.code || "").length,
-      });
-    }, 100);
-  }, true);
-}
-
-// --- 7. CODE RUN: Intercept btn-run ---
-const _btnRunLog = document.getElementById("btn-run");
-if (_btnRunLog) {
-  _btnRunLog.addEventListener("click", () => {
-    if (window.isCodeGeneratedAndReady) {
-      logEvent("CODE_RUN");
-    }
-  }, true);
-}
-
-// --- 8. SELECT/DROPDOWN CHANGE (modifier, datatype): Observe via change event ---
-document.getElementById("workspace-container")?.addEventListener("change", (e) => {
-  const target = e.target;
-  if (target.tagName === "SELECT") {
-    const blockGroup = target.closest("g[data-id]");
-    const blockId = blockGroup ? blockGroup.getAttribute("data-id") : "unknown";
-    const ws = getActiveWorkspace();
-    const result = ws ? findBlockAndParent(ws.blocks, blockId) : null;
-    const blockType = result && result.block ? result.block.type : "unknown";
-    logEvent("MODIFIER_CHANGED", {
-      blockType: blockType,
-      blockId: blockId,
-      field: target.getAttribute("data-prop") || target.name || "dropdown",
-      newValue: target.value,
-    });
-  }
-}, true);
-
-// --- EXPOSE LOG FUNCTIONS TO WINDOW (for Log Panel UI) ---
-window._logGetEntries = getEntries;
-window._logGetCount = getEntryCount;
-window._logExportJSON = exportJSON;
-window._logDownload = downloadLog;
-window._logClear = clearLog;
-window._logEvent = logEvent;
