@@ -870,19 +870,23 @@ if (btnRun) {
     btnRun.innerHTML = spinnerSVG;
     btnRun.disabled = true;
 
-    // 4. Call the external compiler API (Piston — free, no key required)
-    // ── MIGRASI KE VERCEL: ganti URL_COMPILER menjadi "/api/run" ──────────────
-    // Buat /api/run.js di Vercel yang return format { output, stderr, error }
-    // ─────────────────────────────────────────────────────────────────────────
-    const URL_COMPILER = "https://emkc.org/api/v2/piston/execute";
+    // 4. Call the compiler via Vercel Serverless Function
+    // ── api/run.js meneruskan request ke Piston API ───────────
+    // Untuk ganti compiler: ubah logika di api/run.js saja,
+    // tidak perlu ubah kode frontend ini.
+    // ─────────────────────────────────────────────────────────
+    const URL_COMPILER = "/api/run";
 
     // GENERATE FRESH EXECUTION CODE HERE
     const executionResult = generateJavaCode(ws.blocks, true);
 
-    // Adapter: normalisasi response Piston ke format { output, stderr, error }
-    // sehingga kode output handling di bawah tidak perlu diubah
-    function normalizePistonResponse(pistonData) {
-      const run = pistonData.run || {};
+    // Adapter: normalisasi response ke format { output, stderr, error }
+    // api/run.js sudah return format ini langsung, adapter ini sebagai safety net
+    function normalizePistonResponse(data) {
+      // api/run.js sudah return { output, stderr, error } langsung
+      if (data.output !== undefined) return data;
+      // fallback jika response masih format Piston mentah
+      const run = data.run || {};
       return {
         output: run.stdout || "",
         stderr: run.stderr || "",
@@ -891,8 +895,6 @@ if (btnRun) {
     }
 
     const pistonPayload = {
-      language: "java",
-      version: "*",
       files: [{ name: "Main.java", content: executionResult.code }],
       stdin: finalStdin,
     };
@@ -913,8 +915,8 @@ if (btnRun) {
       // Log CODE_RUN event
       if (window.activityLogger) {
         window.activityLogger.logEvent("CODE_RUN", {
-          exitCode: raw.run?.code,
-          hasStderr: !!(raw.run?.stderr?.trim()),
+          exitCode: raw.run?.code ?? (raw.error ? 1 : 0),
+          hasStderr: !!(raw.stderr?.trim() || raw.run?.stderr?.trim()),
         });
       }
 
