@@ -1,3 +1,9 @@
+// ============================================================
+// Vercel Serverless Function — Java Compiler Proxy
+// POST /api/run  —  CommonJS, zero dependencies
+// Menggunakan Wandbox API (wandbox.org) — gratis, tanpa API key
+// ============================================================
+
 const https = require("https");
 
 module.exports = async function handler(req, res) {
@@ -10,58 +16,54 @@ module.exports = async function handler(req, res) {
 
   const { files, stdin } = req.body || {};
   if (!files || !Array.isArray(files) || files.length === 0) {
-    return res.status(400).json({ output: "", stderr: "Field 'files' diperlukan.", error: "" });
+    return res.status(400).json({ output: "", stderr: "", error: "Field 'files' diperlukan." });
   }
 
-  // Debug: tampilkan apa yang kita terima dari frontend
-  const receivedInfo = files.map(f => ({
-    name: f.name,
-    contentLength: (f.content || "").length,
-    preview: (f.content || "").slice(0, 80),
-  }));
+  // Gabungkan semua file jadi satu kode (Wandbox: single file mode)
+  const code = files.map(f => f.content || "").join("\n");
 
-  const pistonPayload = JSON.stringify({ language: "java", version: "*", files, stdin: stdin || "" });
+  const wandboxPayload = JSON.stringify({
+    compiler: "openjdk-head",   // Java terbaru di Wandbox
+    code: code,
+    stdin: stdin || "",
+    "compiler-option-raw": "",
+    "runtime-option-raw": "",
+  });
 
   return new Promise((resolve) => {
     const options = {
-      hostname: "emkc.org",
-      path: "/api/v2/piston/execute",
+      hostname: "wandbox.org",
+      path: "/api/compile.json",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(pistonPayload),
+        "Content-Length": Buffer.byteLength(wandboxPayload),
+        "User-Agent": "OOPify-v3/1.0",
       },
     };
 
-    const pistonReq = https.request(options, (pistonRes) => {
+    const apiReq = https.request(options, (apiRes) => {
       let raw = "";
-      pistonRes.on("data", (chunk) => (raw += chunk));
-      pistonRes.on("end", () => {
+      apiRes.on("data", (chunk) => (raw += chunk));
+      apiRes.on("end", () => {
         try {
           const data = JSON.parse(raw);
-          const compile = data.compile || null;
-          const run = data.run || {};
-          const stdout = run.stdout ?? run.output ?? "";
 
-          // Jika output kosong, sertakan info debug di stderr agar terlihat di terminal
-          const debugInfo = stdout.trim() === ""
-            ? `[DEBUG] Files received: ${JSON.stringify(receivedInfo)}\n` +
-              `[DEBUG] Piston HTTP: ${pistonRes.statusCode}\n` +
-              `[DEBUG] compile: code=${compile?.code} stderr="${compile?.stderr?.slice(0,100)}"\n` +
-              `[DEBUG] run: code=${run.code} stdout="${run.stdout}" output="${run.output}"\n`
-            : "";
+          // Wandbox response: { status, program_output, program_error, compiler_error, compiler_output }
+          const stdout    = data.program_output  || "";
+          const stderr    = data.program_error   || "";
+          const compErr   = data.compiler_error  || "";
+          const exitCode  = parseInt(data.status, 10); // "0" = sukses
 
-          const exitCode = run.code;
-          let error = "";
-          if (compile && compile.code != null && compile.code !== 0) {
-            error = "Compilation failed";
-          } else if (exitCode != null && exitCode !== 0) {
-            error = `Exit code ${exitCode}`;
-          }
+          // Jika ada compile error tampilkan sebagai stderr
+          const finalStderr = compErr ? compErr + "\n" + stderr : stderr;
+          const error = (compErr) ? "Compilation failed"
+                      : (exitCode !== 0 && !isNaN(exitCode)) ? `Exit code ${exitCode}`
+                      : "";
 
           res.status(200).json({
             output: stdout,
-            stderr: (run.stderr || "") + debugInfo,
+            stderr: finalStderr,
             error,
           });
         } catch (e) {
@@ -71,18 +73,18 @@ module.exports = async function handler(req, res) {
       });
     });
 
-    pistonReq.setTimeout(25000, () => {
-      pistonReq.destroy();
-      res.status(504).json({ output: "", stderr: "", error: "Compiler timeout." });
+    apiReq.setTimeout(30000, () => {
+      apiReq.destroy();
+      res.status(504).json({ output: "", stderr: "", error: "Compiler timeout (>30 detik)." });
       resolve();
     });
 
-    pistonReq.on("error", (e) => {
+    apiReq.on("error", (e) => {
       res.status(500).json({ output: "", stderr: "", error: "Network error: " + e.message });
       resolve();
     });
 
-    pistonReq.write(pistonPayload);
-    pistonReq.end();
+    apiReq.write(wandboxPayload);
+    apiReq.end();
   });
 };
