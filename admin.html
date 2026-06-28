@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OOPify Admin — Data Aktivitas</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface2: #0f3460;
+      --accent: #e94560;
+      --accent2: #533483;
+      --text: #eaeaea;
+      --text-muted: #8a8a9a;
+      --border: #2a2a4a;
+      --success: #4caf50;
+      --warning: #ff9800;
+      --error: #f44336;
+      --radius: 8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── PASSWORD GATE ── */
+    #gate {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .gate-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      width: 340px;
+      text-align: center;
+    }
+    .gate-box h1 { font-size: 22px; margin-bottom: 6px; }
+    .gate-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+    .gate-box input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .gate-box input:focus { border-color: var(--accent); }
+    .gate-box button {
+      width: 100%;
+      padding: 10px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .gate-box button:hover { opacity: 0.9; }
+    #pwd-error {
+      margin-top: 12px;
+      color: var(--error);
+      font-size: 13px;
+    }
+
+    /* ── DASHBOARD ── */
+    #dashboard { display: none; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header .brand { font-size: 18px; font-weight: 700; }
+    header .brand span { color: var(--accent); }
+    header .actions { display: flex; gap: 10px; }
+
+    .btn {
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+    /* ── STATS ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .stat-card .label { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; }
+    .stat-card .sub { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
+
+    /* ── FILTERS ── */
+    .filter-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+      margin-bottom: 16px;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .filter-group input,
+    .filter-group select {
+      padding: 7px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      min-width: 140px;
+    }
+    .filter-group input:focus,
+    .filter-group select:focus { border-color: var(--accent); }
+    .filter-group select option { background: var(--bg); }
+
+    /* ── TABLE ── */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .table-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-header .count { color: var(--text-muted); font-size: 13px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    thead th:hover { color: var(--text); }
+    thead th.sort-asc::after { content: " ▲"; }
+    thead th.sort-desc::after { content: " ▼"; }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+
+    td { padding: 10px 14px; font-size: 13px; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-blue { background: rgba(83,52,131,0.4); color: #b39ddb; }
+    .badge-green { background: rgba(76,175,80,0.2); color: #81c784; }
+    .badge-orange { background: rgba(255,152,0,0.2); color: #ffcc80; }
+    .badge-red { background: rgba(244,67,54,0.2); color: #ef9a9a; }
+
+    /* ── LOADING / EMPTY ── */
+    .loading-state, .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .loading-state .spinner {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── MODAL ── */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 720px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-title { font-size: 16px; font-weight: 700; }
+    .modal-sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .info-item .key { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .info-item .val { font-size: 14px; margin-top: 2px; }
+
+    .section-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .event-list { display: flex; flex-direction: column; gap: 4px; }
+    .event-row {
+      display: grid;
+      grid-template-columns: 60px 80px 1fr;
+      gap: 8px;
+      align-items: start;
+      padding: 6px 10px;
+      background: var(--bg);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .event-row .eid { color: var(--text-muted); }
+    .event-row .etime { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .event-row .ename { font-weight: 600; color: var(--accent); }
+    .event-row .epayload { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+
+    .counts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .count-item {
+      background: var(--bg);
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .count-item .cname { font-size: 11px; color: var(--text-muted); }
+    .count-item .cval { font-size: 14px; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<!-- PASSWORD GATE -->
+<div id="gate">
+  <div class="gate-box">
+    <h1>OOPify Admin</h1>
+    <p>Data Aktivitas Penelitian</p>
+    <input type="password" id="pwd-input" placeholder="Masukkan password" />
+    <button onclick="checkPassword()">Masuk</button>
+    <p id="pwd-error" hidden>Password salah. Coba lagi.</p>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <header>
+    <div class="brand">OOPify <span>Admin</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" onclick="loadData()">⟳ Refresh</button>
+      <button class="btn btn-primary btn-sm" onclick="exportCSV()">↓ Export CSV</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- STATS -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><div class="label">Total Sesi</div><div class="value" id="st-total">—</div></div>
+      <div class="stat-card"><div class="label">Sesi Ditampilkan</div><div class="value" id="st-filtered">—</div></div>
+      <div class="stat-card"><div class="label">Rata-rata Durasi</div><div class="value" id="st-duration">—</div></div>
+      <div class="stat-card"><div class="label">Total Events</div><div class="value" id="st-events">—</div></div>
+      <div class="stat-card"><div class="label">Distribusi</div><div class="value" id="st-dist" style="font-size:13px;line-height:1.6">—</div></div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>Dari Tanggal</label>
+        <input type="date" id="f-from" oninput="applyFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>Sampai Tanggal</label>
+        <input type="date" id="f-to" oninput="applyFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>Nama User</label>
+        <input type="text" id="f-name" placeholder="Cari nama…" oninput="applyFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>Background</label>
+        <select id="f-bg" onchange="applyFilters()">
+          <option value="">Semua</option>
+          <option>Siswa SMA/SMK</option>
+          <option>Mahasiswa</option>
+          <option>Profesional</option>
+          <option>Umum</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Soal</label>
+        <select id="f-soal" onchange="applyFilters()">
+          <option value="">Semua</option>
+        </select>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="clearFilters()" style="align-self:flex-end">Reset</button>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-wrap">
+      <div class="table-header">
+        <span id="row-count" class="count"></span>
+      </div>
+      <div id="table-area">
+        <div class="loading-state"><div class="spinner"></div><br>Memuat data…</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- DETAIL MODAL -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title">Detail Sesi</div>
+        <div class="modal-sub" id="modal-sub"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  // ── CONFIG ──────────────────────────────────────────────────
+  const ADMIN_PASSWORD = "thesis2026"; // ganti sesuai kebutuhan
+  const DB_URL = "https://thesis-log-tracker-default-rtdb.asia-southeast1.firebasedatabase.app/sessions.json";
+
+  // ── STATE ────────────────────────────────────────────────────
+  let allSessions = [];
+  let filtered = [];
+  let sortCol = "savedAt";
+  let sortDir = -1; // -1 = desc (terbaru dulu)
+
+  // ── PASSWORD GATE ────────────────────────────────────────────
+  document.getElementById("pwd-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") checkPassword();
+  });
+
+  function checkPassword() {
+    const val = document.getElementById("pwd-input").value;
+    if (val === ADMIN_PASSWORD) {
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("dashboard").style.display = "block";
+      loadData();
+    } else {
+      document.getElementById("pwd-error").hidden = false;
+      document.getElementById("pwd-input").value = "";
+      document.getElementById("pwd-input").focus();
+    }
+  }
+
+  // ── LOAD DATA ────────────────────────────────────────────────
+  async function loadData() {
+    setTableLoading();
+    try {
+      const res = await fetch(DB_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      if (!raw) { allSessions = []; }
+      else { allSessions = Object.values(raw); }
+      populateSoalFilter();
+      applyFilters();
+    } catch (err) {
+      document.getElementById("table-area").innerHTML =
+        `<div class="empty-state">❌ Gagal memuat data.<br><small>${err.message}</small><br><br>
+        <small>Pastikan Firebase Security Rules mengizinkan read publik.</small></div>`;
+    }
+  }
+
+  function setTableLoading() {
+    document.getElementById("table-area").innerHTML =
+      `<div class="loading-state"><div class="spinner"></div><br>Memuat data…</div>`;
+  }
+
+  // ── FILTERS ──────────────────────────────────────────────────
+  function applyFilters() {
+    const fromVal = document.getElementById("f-from").value;
+    const toVal   = document.getElementById("f-to").value;
+    const nameVal = document.getElementById("f-name").value.toLowerCase().trim();
+    const bgVal   = document.getElementById("f-bg").value;
+    const soalVal = document.getElementById("f-soal").value;
+
+    filtered = allSessions.filter((s) => {
+      const savedAt = s.savedAt || "";
+      const date = savedAt.slice(0, 10);
+      if (fromVal && date < fromVal) return false;
+      if (toVal   && date > toVal)   return false;
+
+      const name = (s.userProfile?.name || "").toLowerCase();
+      if (nameVal && !name.includes(nameVal)) return false;
+
+      const bg = s.userProfile?.background || "";
+      if (bgVal && bg !== bgVal) return false;
+
+      const soal = s.examSession?.questionId || "";
+      if (soalVal && soal !== soalVal) return false;
+
+      return true;
+    });
+
+    sortFiltered();
+    renderStats();
+    renderTable();
+  }
+
+  function clearFilters() {
+    ["f-from","f-to","f-name"].forEach((id) => { document.getElementById(id).value = ""; });
+    ["f-bg","f-soal"].forEach((id) => { document.getElementById(id).value = ""; });
+    applyFilters();
+  }
+
+  function populateSoalFilter() {
+    const seen = new Set();
+    allSessions.forEach((s) => {
+      const q = s.examSession?.questionId;
+      if (q) seen.add(q);
+    });
+    const sel = document.getElementById("f-soal");
+    // keep first "Semua" option
+    sel.innerHTML = `<option value="">Semua</option>`;
+    [...seen].sort().forEach((q) => {
+      const opt = document.createElement("option");
+      opt.value = q;
+      opt.textContent = q;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── SORT ─────────────────────────────────────────────────────
+  function sortBy(col) {
+    if (sortCol === col) sortDir *= -1;
+    else { sortCol = col; sortDir = -1; }
+    sortFiltered();
+    renderTable();
+    updateSortHeaders();
+  }
+
+  function sortFiltered() {
+    filtered.sort((a, b) => {
+      let va = getColVal(a, sortCol);
+      let vb = getColVal(b, sortCol);
+      if (typeof va === "string") va = va.toLowerCase();
+      if (typeof vb === "string") vb = vb.toLowerCase();
+      if (va < vb) return -1 * sortDir;
+      if (va > vb) return 1 * sortDir;
+      return 0;
+    });
+  }
+
+  function getColVal(s, col) {
+    switch (col) {
+      case "savedAt":   return s.savedAt || "";
+      case "name":      return s.userProfile?.name || "";
+      case "bg":        return s.userProfile?.background || "";
+      case "inst":      return s.userProfile?.institution || "";
+      case "soal":      return s.examSession?.questionTitle || "";
+      case "duration":  return s.stats?.durationMs || 0;
+      case "events":    return s.stats?.total || 0;
+      default: return "";
+    }
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll("thead th[data-col]").forEach((th) => {
+      th.classList.remove("sort-asc","sort-desc");
+      if (th.dataset.col === sortCol) {
+        th.classList.add(sortDir === 1 ? "sort-asc" : "sort-desc");
+      }
+    });
+  }
+
+  // ── STATS ─────────────────────────────────────────────────────
+  function renderStats() {
+    const total = allSessions.length;
+    const flen  = filtered.length;
+    const totalEvt = filtered.reduce((s, x) => s + (x.stats?.total || 0), 0);
+    const durations = filtered.map((x) => x.stats?.durationMs || 0).filter((d) => d > 0);
+    const avgDur = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+
+    document.getElementById("st-total").textContent = total;
+    document.getElementById("st-filtered").textContent = flen;
+    document.getElementById("st-duration").textContent = fmtDur(avgDur);
+    document.getElementById("st-events").textContent = totalEvt;
+
+    // distribusi background
+    const dist = {};
+    filtered.forEach((s) => {
+      const bg = s.userProfile?.background || "Tidak diisi";
+      dist[bg] = (dist[bg] || 0) + 1;
+    });
+    document.getElementById("st-dist").innerHTML =
+      Object.entries(dist)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<div>${k}: <b>${v}</b></div>`)
+        .join("") || "—";
+  }
+
+  // ── TABLE ─────────────────────────────────────────────────────
+  function renderTable() {
+    document.getElementById("row-count").textContent =
+      `${filtered.length} sesi${filtered.length !== allSessions.length ? ` dari ${allSessions.length} total` : ""}`;
+
+    if (filtered.length === 0) {
+      document.getElementById("table-area").innerHTML =
+        `<div class="empty-state">Tidak ada data yang cocok dengan filter.</div>`;
+      return;
+    }
+
+    const rows = filtered.map((s, i) => {
+      const date = fmtDate(s.savedAt);
+      const name = esc(s.userProfile?.name || "—");
+      const bg   = s.userProfile?.background || "—";
+      const inst = esc(s.userProfile?.institution || "—");
+      const soal = esc(s.examSession?.questionTitle || "—");
+      const dur  = fmtDur(s.stats?.durationMs || 0);
+      const evt  = s.stats?.total || 0;
+      return `<tr onclick="openModal(${i})">
+        <td>${date}</td>
+        <td>${name}</td>
+        <td>${bgBadge(bg)}</td>
+        <td>${inst}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${soal}</td>
+        <td>${dur}</td>
+        <td>${evt}</td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("table-area").innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th data-col="savedAt" onclick="sortBy('savedAt')">Tanggal</th>
+            <th data-col="name" onclick="sortBy('name')">Nama</th>
+            <th data-col="bg" onclick="sortBy('bg')">Background</th>
+            <th data-col="inst" onclick="sortBy('inst')">Institusi</th>
+            <th data-col="soal" onclick="sortBy('soal')">Soal</th>
+            <th data-col="duration" onclick="sortBy('duration')">Durasi</th>
+            <th data-col="events" onclick="sortBy('events')">Events</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    updateSortHeaders();
+  }
+
+  function bgBadge(bg) {
+    const map = {
+      "Mahasiswa": "badge-blue",
+      "Siswa SMA/SMK": "badge-green",
+      "Profesional": "badge-orange",
+      "Umum": "badge-red",
+    };
+    return `<span class="badge ${map[bg] || ''}">${esc(bg)}</span>`;
+  }
+
+  // ── DETAIL MODAL ──────────────────────────────────────────────
+  function openModal(idx) {
+    const s = filtered[idx];
+    const p = s.userProfile || {};
+    const ex = s.examSession;
+    const st = s.stats || {};
+
+    document.getElementById("modal-title").textContent = p.name || "—";
+    document.getElementById("modal-sub").textContent =
+      `${p.background || ""} · ${p.institution || ""} · ${fmtDate(s.savedAt)}`;
+
+    // Info grid
+    const infoItems = [
+      ["Pengalaman OOP", p.oopExperience || "—"],
+      ["Durasi Sesi", fmtDur(st.durationMs || 0)],
+      ["Total Events", st.total || 0],
+      ["Session ID", `<small style="color:var(--text-muted)">${s.sessionId || "—"}</small>`],
+    ];
+    if (ex) {
+      infoItems.push(["Soal", esc(ex.questionTitle || ex.questionId || "—")]);
+      infoItems.push(["Durasi Pengerjaan", fmtDur(ex.durationMs || 0)]);
+    }
+
+    let html = `<div class="info-grid">${
+      infoItems.map(([k, v]) => `<div class="info-item"><div class="key">${k}</div><div class="val">${v}</div></div>`).join("")
+    }</div>`;
+
+    // Event counts
+    if (st.counts && Object.keys(st.counts).length) {
+      html += `<div class="section-title" style="margin-bottom:10px">Ringkasan Event</div>
+        <div class="counts-grid">${
+          Object.entries(st.counts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, v]) => `<div class="count-item"><span class="cname">${k}</span><span class="cval">${v}</span></div>`)
+            .join("")
+        }</div>`;
+    }
+
+    // Event timeline
+    const events = Array.isArray(s.events) ? s.events : Object.values(s.events || {});
+    if (events.length) {
+      html += `<div class="section-title" style="margin:14px 0 10px">Timeline Event (${events.length})</div>
+        <div class="event-list">${
+          events.map((e) => {
+            const payload = Object.entries(e)
+              .filter(([k]) => !["id","sessionId","timestamp","elapsedMs","event","questionId","questionTitle"].includes(k))
+              .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+              .join("  ·  ");
+            return `<div class="event-row">
+              <span class="eid">#${e.id}</span>
+              <span class="etime">${fmtElapsed(e.elapsedMs)}</span>
+              <div><div class="ename">${e.event}</div>${payload ? `<div class="epayload">${esc(payload)}</div>` : ""}</div>
+            </div>`;
+          }).join("")
+        }</div>`;
+    }
+
+    document.getElementById("modal-body").innerHTML = html;
+    document.getElementById("modal-overlay").classList.add("show");
+  }
+
+  function closeModal(e) {
+    if (!e || e.target === document.getElementById("modal-overlay")) {
+      document.getElementById("modal-overlay").classList.remove("show");
+    }
+  }
+
+  // ── EXPORT CSV ────────────────────────────────────────────────
+  function exportCSV() {
+    if (!filtered.length) { alert("Tidak ada data untuk di-export."); return; }
+
+    const headers = ["Tanggal","Nama","Background","Institusi","Pengalaman OOP","Soal","Durasi (detik)","Total Events","BLOCK_SPAWNED","BLOCK_DELETED","CODE_GENERATED","CODE_RUN","Session ID"];
+    const rows = filtered.map((s) => {
+      const p = s.userProfile || {};
+      const ex = s.examSession || {};
+      const st = s.stats || {};
+      const c  = st.counts || {};
+      return [
+        fmtDateCSV(s.savedAt),
+        p.name || "",
+        p.background || "",
+        p.institution || "",
+        p.oopExperience || "",
+        ex.questionTitle || ex.questionId || "",
+        Math.round((st.durationMs || 0) / 1000),
+        st.total || 0,
+        c.BLOCK_SPAWNED || 0,
+        c.BLOCK_DELETED || 0,
+        c.CODE_GENERATED || 0,
+        c.CODE_RUN || 0,
+        s.sessionId || "",
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
+    });
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `oopify-data-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── HELPERS ───────────────────────────────────────────────────
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleDateString("id-ID", { day:"2-digit", month:"short", year:"numeric" }) +
+      " " + d.toLocaleTimeString("id-ID", { hour:"2-digit", minute:"2-digit" });
+  }
+  function fmtDateCSV(iso) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("id-ID");
+  }
+  function fmtDur(ms) {
+    if (!ms) return "—";
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}d`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem ? `${m}m ${rem}d` : `${m}m`;
+  }
+  function fmtElapsed(ms) {
+    if (ms == null) return "";
+    const s = Math.round(ms / 1000);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${String(m).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
+  }
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+</script>
+</body>
+</html>
