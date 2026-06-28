@@ -343,6 +343,7 @@
     <div class="brand">OOPify <span>Admin</span></div>
     <div class="actions">
       <button class="btn btn-ghost btn-sm" onclick="loadData()">⟳ Refresh</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportJSON()">↓ Export JSON</button>
       <button class="btn btn-primary btn-sm" onclick="exportCSV()">↓ Export CSV</button>
     </div>
   </header>
@@ -714,6 +715,34 @@
     if (!e || e.target === document.getElementById("modal-overlay")) {
       document.getElementById("modal-overlay").classList.remove("show");
     }
+  }
+
+  // ── EXPORT JSON ───────────────────────────────────────────────
+  function exportJSON() {
+    if (!filtered.length) { alert("Tidak ada data untuk di-export."); return; }
+
+    // Format persis sama dengan exportJSON() di activityLogger.js
+    // Setiap sesi adalah object lengkap termasuk events array
+    const output = filtered.map((s) => ({
+      sessionId:   s.sessionId   || null,
+      exportedAt:  new Date().toISOString(),
+      savedAt:     s.savedAt     || null,
+      userProfile: s.userProfile || null,
+      examSession: s.examSession || null,
+      stats:       s.stats       || null,
+      events:      Array.isArray(s.events)
+                     ? s.events
+                     : Object.values(s.events || {}),
+    }));
+
+    const json = JSON.stringify(output, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `oopify-sessions-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // ── EXPORT CSV ────────────────────────────────────────────────
