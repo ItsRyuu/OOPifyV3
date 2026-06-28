@@ -853,24 +853,49 @@ if (btnRun) {
       window.activityLogger.logEvent("CODE_RUN", { method: "wandbox-direct" });
     }
 
-    // 5. Kirim ke Wandbox langsung dari browser (tanpa backend/API key)
+    // 5. Resolve nama compiler Java dari Wandbox (cache per sesi)
+    if (!window._wandboxJavaCompiler) {
+      try {
+        const listRes = await fetch("https://wandbox.org/api/list.json");
+        const compilers = await listRes.json();
+        const javaEntry =
+          compilers.find(
+            (c) => c.language === "Java" && c.name.toLowerCase().includes("openjdk"),
+          ) || compilers.find((c) => c.language === "Java");
+        window._wandboxJavaCompiler = javaEntry ? javaEntry.name : "openjdk-head";
+      } catch (_) {
+        window._wandboxJavaCompiler = "openjdk-head";
+      }
+    }
+
+    // 6. Kirim ke Wandbox langsung dari browser (tanpa backend/API key)
     try {
       const response = await fetch("https://wandbox.org/api/compile.json", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          compiler: "openjdk-head",
+          compiler: window._wandboxJavaCompiler,
           code: executionResult.code,
           stdin: finalStdin,
           options: "",
         }),
       });
 
-      const data = await response.json();
+      // Parse sebagai teks dulu — Wandbox kadang kirim plain text saat error
+      const rawText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (_) {
+        btnRun.innerHTML = originalIcon;
+        btnRun.disabled = false;
+        if (runningDiv.parentNode) runningDiv.parentNode.removeChild(runningDiv);
+        printToTerminal(`[Error Wandbox] ${rawText.slice(0, 300)}`);
+        return;
+      }
 
       btnRun.innerHTML = originalIcon;
       btnRun.disabled = false;
-
       if (runningDiv.parentNode) runningDiv.parentNode.removeChild(runningDiv);
 
       if (response.ok) {
