@@ -706,20 +706,16 @@ if (btnRun) {
 
     const terminalOverlay = document.getElementById("terminal-overlay");
     const terminalContent = document.getElementById("terminal-content");
-    // ... rest of your existing terminal logic ...
     terminalOverlay.classList.add("show");
     terminalContent.innerHTML = "";
 
     function printToTerminal(text) {
       if (!text) return;
       const lines = text.replace(/\r\n/g, "\n").split("\n");
-
       lines.forEach((line) => {
         const div = document.createElement("div");
         div.className = "term-line";
-
-        div.textContent = line === "" ? "\u00A0" : line;
-
+        div.textContent = line === "" ? " " : line;
         terminalContent.appendChild(div);
       });
       terminalContent.scrollTop = terminalContent.scrollHeight;
@@ -730,8 +726,6 @@ if (btnRun) {
       return new Promise((resolve) => {
         resolveTerminal = resolve;
 
-        // --- 1. BULLETPROOF EXTRACTION ---
-        // If an object gets passed in by mistake, safely unpack it!
         let textToPrint = "";
         let isFallback = fallbackFlag;
 
@@ -742,16 +736,12 @@ if (btnRun) {
           textToPrint = String(promptData);
         }
 
-        // --- 2. SAFE PRINTING ---
         if (textToPrint) {
           textToPrint = textToPrint.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
-
           const lines = textToPrint.split("\n");
           lines.forEach((line) => {
             const div = document.createElement("div");
-            div.className = isFallback
-              ? "term-line system-fallback"
-              : "term-line";
+            div.className = isFallback ? "term-line system-fallback" : "term-line";
             div.textContent = line;
             terminalContent.appendChild(div);
           });
@@ -790,55 +780,40 @@ if (btnRun) {
       }
     };
 
-    // 1. Scan blocks and gather inputs interactively BEFORE hitting the API
+    // 1. Scan blocks for op-input dan kumpulkan prompts
     let prompts = [];
     let accumulatedPrints = [];
 
     function findInputs(nodes) {
       if (!nodes) return;
       for (const node of nodes) {
-        // Prevent cross-contamination
-        // Clear memory when entering a new class or method structural block
-        if (
-          ["class", "interface", "method", "main-method", "construct"].includes(
-            node.type,
-          )
-        ) {
+        if (["class", "interface", "method", "main-method", "construct"].includes(node.type)) {
           accumulatedPrints = [];
         }
-
         if (node.type === "print") {
           let text = node.data.value || "";
           let cleanText = text.replace(/^"|"$/g, "").replace(/\\"/g, '"');
           if (cleanText.includes(" + ")) {
-            cleanText =
-              cleanText.split(" + ")[0].replace(/"/g, "").trim() + "...";
+            cleanText = cleanText.split(" + ")[0].replace(/"/g, "").trim() + "...";
           }
           accumulatedPrints.push(cleanText);
         }
-
         if (node.type === "op-input") {
           let isFallback = accumulatedPrints.length === 0;
           let finalPrompt = !isFallback ? accumulatedPrints.join("\n") : "";
-
           prompts.push({ text: finalPrompt, isFallback: isFallback });
           accumulatedPrints = [];
         }
-
         if (node.children) findInputs(node.children);
       }
     }
     findInputs(ws.blocks);
 
-    // 2. Ask user for all required inputs sequentially
+    // 2. Minta input dari user secara berurutan jika ada op-input
     let stdInputs = [];
     if (prompts.length > 0) {
       for (let i = 0; i < prompts.length; i++) {
-        let ans = await askTerminalInput(
-          prompts[i].text,
-          prompts[i].isFallback,
-        );
-
+        let ans = await askTerminalInput(prompts[i].text, prompts[i].isFallback);
         if (ans === null) return;
         stdInputs.push(ans);
       }
@@ -846,7 +821,7 @@ if (btnRun) {
 
     const finalStdin = stdInputs.length > 0 ? stdInputs.join("\n") + "\n" : "";
 
-    // 3. Show loading animation in Terminal
+    // 3. Tampilkan loading animation
     const runningDiv = document.createElement("div");
     runningDiv.className = "term-line";
     runningDiv.style.color = "#aaa";
@@ -870,129 +845,83 @@ if (btnRun) {
     btnRun.innerHTML = spinnerSVG;
     btnRun.disabled = true;
 
-    // 4. Call the compiler via Vercel Serverless Function
-    // ── api/run.js meneruskan request ke Piston API ───────────
-    // Untuk ganti compiler: ubah logika di api/run.js saja,
-    // tidak perlu ubah kode frontend ini.
-    // ─────────────────────────────────────────────────────────
-    const URL_COMPILER = "/api/run";
-
-    // GENERATE FRESH EXECUTION CODE HERE
+    // 4. Generate fresh Java code
     const executionResult = generateJavaCode(ws.blocks, true);
 
-    // Adapter: normalisasi response ke format { output, stderr, error }
-    // api/run.js sudah return format ini langsung, adapter ini sebagai safety net
-    function normalizePistonResponse(data) {
-      // api/run.js sudah return { output, stderr, error } langsung
-      if (data.output !== undefined) return data;
-      // fallback jika response masih format Piston mentah
-      const run = data.run || {};
-      return {
-        output: run.stdout || "",
-        stderr: run.stderr || "",
-        error: run.code !== 0 ? `Exit code ${run.code}` : "",
-      };
+    // Log activity
+    if (window.activityLogger) {
+      window.activityLogger.logEvent("CODE_RUN", { method: "wandbox-direct" });
     }
 
-    // Java mengharuskan filename = nama public class
-    // Ekstrak nama class pertama dari kode yang di-generate
-    const classNameMatch = executionResult.code.match(/public\s+class\s+(\w+)/);
-    const javaFileName = classNameMatch ? `${classNameMatch[1]}.java` : "Main.java";
-
-    const pistonPayload = {
-      files: [{ name: javaFileName, content: executionResult.code }],
-
-      stdin: finalStdin,
-    };
-
+    // 5. Kirim ke Wandbox langsung dari browser (tanpa backend/API key)
     try {
-      const response = await fetch(URL_COMPILER, {
+      const response = await fetch("https://wandbox.org/api/compile.json", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pistonPayload),
+        body: JSON.stringify({
+          compiler: "openjdk-head",
+          code: executionResult.code,
+          stdin: finalStdin,
+          options: "",
+        }),
       });
 
-      const raw = await response.json();
-      const data = normalizePistonResponse(raw);
+      const data = await response.json();
 
       btnRun.innerHTML = originalIcon;
       btnRun.disabled = false;
 
-      // Log CODE_RUN event
-      if (window.activityLogger) {
-        window.activityLogger.logEvent("CODE_RUN", {
-          exitCode: raw.run?.code ?? (raw.error ? 1 : 0),
-          hasStderr: !!(raw.stderr?.trim() || raw.run?.stderr?.trim()),
-        });
-      }
-
-      // REMOVE "Running..." text smoothly
-      if (runningDiv.parentNode) {
-        runningDiv.parentNode.removeChild(runningDiv);
-      }
-
-      // DO NOT clear terminal content here so the prompt history stays!
+      if (runningDiv.parentNode) runningDiv.parentNode.removeChild(runningDiv);
 
       if (response.ok) {
+        // Wandbox response fields: program_output, compiler_error, program_error
+        const compileErr = (data.compiler_error || "").trim();
+        const runtimeErr = (data.program_error || "").trim();
+        let stdout = data.program_output || "";
+
+        // Strip prompt strings dari stdout
+        prompts.forEach((promptObj) => {
+          if (!promptObj.isFallback && promptObj.text) {
+            promptObj.text.split("\n").forEach((line) => {
+              let orig = line.replace("...", "").trim();
+              if (orig) {
+                const regex = new RegExp(
+                  orig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\n?",
+                  "",
+                );
+                stdout = stdout.replace(regex, "");
+              }
+            });
+          }
+        });
+
         let finalOutput = "";
+        if (compileErr) finalOutput += `[Error Kompilasi]:\n${compileErr}\n`;
+        if (runtimeErr) finalOutput += `[Runtime Error]:\n${runtimeErr}\n`;
+        finalOutput += stdout;
 
-        if (data.error && data.error.trim().length > 0) {
-          finalOutput += `[Status Eksekusi]: ${data.error.trim()}\n`;
-        }
-        if (data.stderr && data.stderr.trim().length > 0) {
-          finalOutput += `[Error Log]:\n${data.stderr.trim()}\n`;
-        }
-
-        if (data.output !== undefined && data.output !== null) {
-          let cleanOutput = data.output;
-
-          // Strip out the prompt strings line-by-line
-          prompts.forEach((promptObj) => {
-            if (!promptObj.isFallback && promptObj.text) {
-              const lines = promptObj.text.split("\n");
-
-              lines.forEach((line) => {
-                let originalText = line.replace("...", "").trim();
-                if (originalText) {
-                  const regex = new RegExp(
-                    originalText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
-                      "\\s*\\n?",
-                    "",
-                  );
-                  cleanOutput = cleanOutput.replace(regex, "");
-                }
-              });
-            }
-          });
-
-          finalOutput += cleanOutput;
-        }
-
-        // If the entire output is literally empty or just pure whitespace, print default
         if (finalOutput.trim() === "") {
           printToTerminal("Program selesai tanpa output.");
         } else {
-          // console doesn't look weirdly padded at the bottom, but KEEP everything else!
-          if (finalOutput.endsWith("\n")) {
-            finalOutput = finalOutput.slice(0, -1);
-          }
+          if (finalOutput.endsWith("\n")) finalOutput = finalOutput.slice(0, -1);
           printToTerminal(finalOutput);
         }
       } else {
-        printToTerminal(
-          `[Error Server] ${data.message || "Status " + response.status}`,
-        );
+        printToTerminal(`[Error Server] Status ${response.status}`);
       }
     } catch (error) {
       btnRun.innerHTML = originalIcon;
       btnRun.disabled = false;
       if (runningDiv.parentNode) runningDiv.parentNode.removeChild(runningDiv);
       printToTerminal(
-        `[Error Jaringan] Tidak dapat terhubung ke server eksekusi.\n${error.message}`,
+        `[Error Jaringan] Tidak dapat terhubung ke Wandbox.\n${error.message}`,
       );
     }
   };
 }
+
+
+
 
 const codePre = document.getElementById("code-pre");
 

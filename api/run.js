@@ -1,7 +1,6 @@
 // ============================================================
-// Vercel Serverless Function — Java Compiler Proxy
+// Vercel Serverless Function — Java Compiler via JDoodle
 // POST /api/run  —  CommonJS, zero dependencies
-// Menggunakan Wandbox API (wandbox.org) — gratis, tanpa API key
 // ============================================================
 
 const https = require("https");
@@ -12,33 +11,46 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ output: "", stderr: "", error: "Method Not Allowed" });
+  }
+
+  // Validasi env vars
+  const clientId     = process.env.JDOODLE_CLIENT_ID;
+  const clientSecret = process.env.JDOODLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    return res.status(500).json({
+      output: "",
+      stderr: "",
+      error: "Server belum dikonfigurasi: JDOODLE_CLIENT_ID / JDOODLE_CLIENT_SECRET belum diset di Vercel.",
+    });
+  }
 
   const { files, stdin } = req.body || {};
   if (!files || !Array.isArray(files) || files.length === 0) {
     return res.status(400).json({ output: "", stderr: "", error: "Field 'files' diperlukan." });
   }
 
-  // Gabungkan semua file jadi satu kode (Wandbox: single file mode)
-  const code = files.map(f => f.content || "").join("\n");
+  // Gabungkan semua file menjadi satu script
+  const script = files.map(f => f.content || "").join("\n");
 
-  const wandboxPayload = JSON.stringify({
-    compiler: "openjdk-head",   // Java terbaru di Wandbox
-    code: code,
-    stdin: stdin || "",
-    "compiler-option-raw": "",
-    "runtime-option-raw": "",
+  const jdoodlePayload = JSON.stringify({
+    clientId,
+    clientSecret,
+    script,
+    language:     "java",
+    versionIndex: "4",        // Java 17
+    stdin:        stdin || "",
   });
 
   return new Promise((resolve) => {
     const options = {
-      hostname: "wandbox.org",
-      path: "/api/compile.json",
-      method: "POST",
+      hostname: "api.jdoodle.com",
+      path:     "/v1/execute",
+      method:   "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(wandboxPayload),
-        "User-Agent": "OOPify-v3/1.0",
+        "Content-Type":   "application/json",
+        "Content-Length": Buffer.byteLength(jdoodlePayload),
       },
     };
 
@@ -49,25 +61,36 @@ module.exports = async function handler(req, res) {
         try {
           const data = JSON.parse(raw);
 
-          // Wandbox response: { status, program_output, program_error, compiler_error, compiler_output }
-          const stdout    = data.program_output  || "";
-          const stderr    = data.program_error   || "";
-          const compErr   = data.compiler_error  || "";
-          const exitCode  = parseInt(data.status, 10); // "0" = sukses
+          // JDoodle response: { output, statusCode, memory, cpuTime }
+          // statusCode 200 = sukses, 400 = error input, 401 = auth error, dll
+          if (apiRes.statusCode !== 200 || data.statusCode === 401) {
+            return res.status(200).json({
+              output: "",
+              stderr: "",
+              error: `JDoodle auth error: periksa JDOODLE_CLIENT_ID dan CLIENT_SECRET di Vercel. (HTTP ${apiRes.statusCode})`,
+            });
+          }
 
-          // Jika ada compile error tampilkan sebagai stderr
-          const finalStderr = compErr ? compErr + "\n" + stderr : stderr;
-          const error = (compErr) ? "Compilation failed"
-                      : (exitCode !== 0 && !isNaN(exitCode)) ? `Exit code ${exitCode}`
-                      : "";
+          const output = data.output || "";
+
+          // JDoodle menggabungkan stdout + stderr dalam satu field "output"
+          // Deteksi apakah ada compile error dari tanda-tanda umum
+          const isCompileError = output.includes("error:") && output.includes(".java:");
+          const isRuntimeError = output.includes("Exception in thread");
 
           res.status(200).json({
-            output: stdout,
-            stderr: finalStderr,
-            error,
+            output: isCompileError || isRuntimeError ? "" : output,
+            stderr: isCompileError || isRuntimeError ? output : "",
+            error:  isCompileError ? "Compilation failed"
+                  : isRuntimeError ? "Runtime error"
+                  : "",
           });
         } catch (e) {
-          res.status(502).json({ output: "", stderr: raw.slice(0, 500), error: "Parse error: " + e.message });
+          res.status(502).json({
+            output: "",
+            stderr: `Raw response: ${raw.slice(0, 300)}`,
+            error:  "Parse error: " + e.message,
+          });
         }
         resolve();
       });
@@ -84,7 +107,7 @@ module.exports = async function handler(req, res) {
       resolve();
     });
 
-    apiReq.write(wandboxPayload);
+    apiReq.write(jdoodlePayload);
     apiReq.end();
   });
 };

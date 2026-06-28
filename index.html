@@ -1604,26 +1604,24 @@
     <div id="terminal-overlay">
       <div id="terminal-box">
         <div id="terminal-header">
-          <span>CONSOLE OUTPUT</span>
-          <button id="terminal-close" title="Tutup Console">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="2.5"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-              />
+          <div id="terminal-header-left">
+            <div id="terminal-header-dots">
+              <span class="dot-red"></span>
+              <span class="dot-yellow"></span>
+              <span class="dot-green"></span>
+            </div>
+            <span id="terminal-header-title">Java — OOPify Runner</span>
+          </div>
+          <button id="terminal-close" title="Tutup">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
         <div id="terminal-content"></div>
       </div>
     </div>
+
 
     <div id="about-overlay" class="about-modal-overlay">
       <div class="about-modal-box">
